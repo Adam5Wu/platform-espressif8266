@@ -76,7 +76,7 @@
     "tool-esptoolpy": {
       "type": "uploader",
       "owner": "platformio",
-      "version": "~1.30000.0"
+      "version": "~1.40501.0"
     },
     "tool-mkspiffs": {
       "type": "uploader",
@@ -99,6 +99,11 @@
       "optional": true,
       "owner": "platformio",
       "version": "^1.7.0"
+    },
+    "tool-mconf": {
+      "optional": true,
+      "owner": "platformio",
+      "version": "~1.4060000.0"
     }
   }
 }

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from platformio.public import PlatformBase
-
+import sys
 
 class Espressif8266Platform(PlatformBase):
 
@@ -27,7 +27,7 @@ class Espressif8266Platform(PlatformBase):
             for p in self.packages:
                 if p in ('tool-cmake', 'tool-ninja'):
                     self.packages[p]['optional'] = False
-                elif p in ('tool-mconf') and 'windows' in get_systype():
+                elif p in ('tool-mconf') and sys.platform.startswith("win"):
                     self.packages[p]['optional'] = False
         return super().configure_default_packages(variables, targets)
 
