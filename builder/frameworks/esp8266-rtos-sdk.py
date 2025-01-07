@@ -68,8 +68,6 @@ SDKCONFIG_PATH = board.get(
     "build.rtos-sdk.sdkconfig_path",
     os.path.join(PROJECT_DIR, "sdkconfig.%s" % env.subst("$PIOENV")),
 )
-if not os.path.isfile(SDKCONFIG_PATH):
-    SDKCONFIG_PATH = os.path.join(PROJECT_DIR, "sdkconfig")
 
 # replace paths for windows
 SDKCONFIG_PATH = SDKCONFIG_PATH.replace("\\","/")
@@ -998,7 +996,8 @@ def install_python_deps():
         # https://github.com/platformio/platform-espressif32/issues/635
         "cryptography": ">=2.1.4,<35.0.0",
         "future": ">=0.15.2",
-        "pyparsing": ">=2.0.3,<2.4.0"
+        "pyparsing": ">=2.0.3,<2.4.0",
+        "setuptools": ">0"
     }
 
     installed_packages = _get_installed_pip_packages()
