@@ -1272,6 +1272,22 @@ partition_table = env.Command(
 
 env.Depends("$BUILD_DIR/$PROGNAME$PROGSUFFIX", partition_table)
 
+# Prepare file system paramters for custom data partition
+custom_data_partition_name = env.GetProjectOption("custom_data_partition", False)
+if custom_data_partition_name:
+    partition_info = get_partition_info(
+        env.subst("$PARTITIONS_TABLE_CSV"),
+        {"name": custom_data_partition_name}
+    )
+    partition_offset = partition_info.get("offset")
+    partition_size = partition_info.get("size")
+    if not partition_size:
+        raise Exception("Partition '%s` not defined"%(custom_data_partition_name))
+    env.Replace(
+        RTOS_FS_START=partition_offset,
+        RTOS_FS_SIZE=partition_size,
+    )
+
 # linker needs APP_OFFSE and APP_SIZE
 app_params = get_partition_info(env.subst("$PARTITIONS_TABLE_CSV"), {"name": "*boot"})
 app_offset = app_params.get("offset")
