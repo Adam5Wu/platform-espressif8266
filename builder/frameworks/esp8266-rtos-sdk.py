@@ -1245,17 +1245,26 @@ env.AddBuildMiddleware(_skip_prj_source_files)
 # Generate partition table
 #
 
-fwpartitions_dir = os.path.join(FRAMEWORK_DIR, "components", "partition_table")
-partitions_csv = board.get("build.partitions", "partitions_singleapp.csv")
-partition_table_offset = sdk_config.get("PARTITION_TABLE_OFFSET", 0x8000)
-
-env.Replace(
-    PARTITIONS_TABLE_CSV=os.path.abspath(
-        os.path.join(fwpartitions_dir, partitions_csv)
-        if os.path.isfile(os.path.join(fwpartitions_dir, partitions_csv))
-        else partitions_csv
+custom_partition_table = sdk_config.get("PARTITION_TABLE_CUSTOM", False)
+if custom_partition_table:
+    custom_partition_file = sdk_config.get("PARTITION_TABLE_CUSTOM_FILENAME", "unspecified.csv")
+    
+    env.Replace(
+        PARTITIONS_TABLE_CSV=os.path.abspath(
+            os.path.join(PROJECT_DIR, custom_partition_file)
+        )
     )
-)
+else:
+    fwpartitions_dir = os.path.join(FRAMEWORK_DIR, "components", "partition_table")
+    partitions_csv = board.get("build.partitions", "partitions_singleapp.csv")
+
+    env.Replace(
+        PARTITIONS_TABLE_CSV=os.path.abspath(
+            os.path.join(fwpartitions_dir, partitions_csv)
+            if os.path.isfile(os.path.join(fwpartitions_dir, partitions_csv))
+            else partitions_csv
+        )
+    )
 
 partition_table = env.Command(
     os.path.join("$BUILD_DIR", "partitions.bin"),
