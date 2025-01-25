@@ -93,29 +93,39 @@ def _get_flash_size(env):
 
 
 def fetch_fs_size(env):
-    ldsizes = _parse_ld_sizes(env.GetActualLDScript())
-    for key in ldsizes:
-        if key.startswith("fs_"):
-            env[key.upper()] = ldsizes[key]
+    if "esp8266-rtos-sdk" in env.subst("$PIOFRAMEWORK"):
+        assert "RTOS_FS_START" in env
 
-    assert all([
-        k in env
-        for k in ["FS_START", "FS_END", "FS_PAGE", "FS_BLOCK"]
-    ])
-
-    # esptool flash starts from 0
-    for k in ("FS_START", "FS_END"):
-        _value = 0
-        if env[k] < 0x40300000:
-            _value = env[k] & 0xFFFFF
-        elif env[k] < 0x411FB000:
-            _value = env[k] & 0xFFFFFF
-            _value -= 0x200000  # correction
-        else:
-            _value = env[k] & 0xFFFFFF
-            _value += 0xE00000  # correction
-
-        env[k] = _value
+        env.Replace(
+            FS_START = _parse_size(env["RTOS_FS_START"]),
+            FS_END = _parse_size(env["RTOS_FS_START"]) + _parse_size(env["RTOS_FS_SIZE"]),
+            FS_PAGE = _parse_size(env.GetProjectOption("custom_data_partition_fs_page", "0x100")),
+            FS_BLOCK = _parse_size(env.GetProjectOption("custom_data_partition_fs_block", "0x1000")),
+        )
+    else:
+      ldsizes = _parse_ld_sizes(env.GetActualLDScript())
+      for key in ldsizes:
+          if key.startswith("fs_"):
+              env[key.upper()] = ldsizes[key]
+  
+      assert all([
+          k in env
+          for k in ["FS_START", "FS_END", "FS_PAGE", "FS_BLOCK"]
+      ])
+  
+      # esptool flash starts from 0
+      for k in ("FS_START", "FS_END"):
+          _value = 0
+          if env[k] < 0x40300000:
+              _value = env[k] & 0xFFFFF
+          elif env[k] < 0x411FB000:
+              _value = env[k] & 0xFFFFFF
+              _value -= 0x200000  # correction
+          else:
+              _value = env[k] & 0xFFFFFF
+              _value += 0xE00000  # correction
+  
+          env[k] = _value
 
 
 def __fetch_fs_size(target, source, env):
