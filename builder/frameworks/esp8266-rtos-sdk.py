@@ -72,7 +72,7 @@ SDKCONFIG_PATH = board.get(
 # replace paths for windows
 SDKCONFIG_PATH = SDKCONFIG_PATH.replace("\\","/")
 
-def set_elftobin():
+def set_elftobin(sdk_config):
     env.Append(
         # copy CCFLAGS to ASFLAGS (-x assembler-with-cpp mode)
         ASFLAGS=env.get("CCFLAGS", [])[:],
@@ -87,16 +87,13 @@ def set_elftobin():
                     "--flash_mode", "$BOARD_FLASH_MODE",
                     "--flash_freq", "${__get_board_f_flash(__env__)}m",
                     "--flash_size", board.get("upload.flash_size", "4MB"),
+                    ("--rom_print 0" if sdk_config.get("DISABLE_ROM_UART_PRINT", False) else ""),
                     "-o", "$TARGET", "$SOURCES"
                 ]), "Building $TARGET"),
                 suffix=".bin"
             )
         )
     )
-
-set_elftobin()
-
-
 
 def get_project_lib_includes(env):
     project = ProjectAsLibBuilder(env, "$PROJECT_DIR")
@@ -1187,6 +1184,8 @@ project_defines = get_app_defines(project_config)
 project_flags = get_app_flags(project_config, default_config)
 link_args = extract_link_args(elf_config)
 app_includes = get_app_includes(elf_config)
+
+set_elftobin(sdk_config)
 
 #
 # Compile bootloader
