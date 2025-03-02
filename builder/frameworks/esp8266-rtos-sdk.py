@@ -609,6 +609,7 @@ def prepare_build_envs(config, default_env, debug_allowed=True):
         build_env.AppendUnique(CPPDEFINES=defines, CPPPATH=includes)
         if sys_includes:
             build_env.Append(CCFLAGS=[("-isystem", inc) for inc in sys_includes])
+        build_env.Append(CCFLAGS=["-fmacro-prefix-map="+FRAMEWORK_DIR+"=IDF"])
         build_env.ProcessUnFlags(default_env.get("BUILD_UNFLAGS"))
         if is_build_type_debug:
             build_env.ConfigureDebugFlags()
