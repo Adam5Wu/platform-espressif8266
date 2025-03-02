@@ -380,7 +380,7 @@ elif upload_protocol == "esptool" and "esp8266-rtos-sdk" in env.subst("$PIOFRAME
             "--flash_freq", "${__get_board_f_flash(__env__)}m",
             "--flash_size", "detect"
         ],
-        UPLOADCMD='"$PYTHONEXE" "$UPLOADER" $UPLOADERFLAGS 0x10000 $SOURCE'
+        UPLOADCMD='"$PYTHONEXE" "$UPLOADER" $UPLOADERFLAGS $RTOS_APP_OFFSET $SOURCE'
     )
     for image in env.get("FLASH_EXTRA_IMAGES", []):
         env.Append(UPLOADERFLAGS=[image[0], env.subst(image[1])])
