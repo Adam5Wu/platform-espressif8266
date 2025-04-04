@@ -891,9 +891,11 @@ def find_default_component(target_configs):
 def create_version_file():
     version_file = os.path.join(FRAMEWORK_DIR, "version.txt")
     if not os.path.isfile(version_file):
-        with open(version_file, "w") as fp:
-            package_version = platform.get_package_version("framework-esp8266-rtos-sdk")
-            fp.write(get_original_version(package_version) or package_version)
+        git_folder = os.path.join(FRAMEWORK_DIR, ".git")
+        if not os.path.isdir(git_folder):
+            with open(version_file, "w") as fp:
+                package_version = platform.get_package_version("framework-esp8266-rtos-sdk")
+                fp.write(get_original_version(package_version) or package_version)
 
 
 
