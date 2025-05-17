@@ -17,6 +17,7 @@
 import functools
 import re
 import sys
+import shutil
 from os.path import join
 
 
@@ -252,6 +253,13 @@ env.Append(
 # Target: Build executable and linkable firmware or file system image
 #
 
+def _ignore_original_with_serve_as_gz(dir, files):
+    ignore_list = []
+    for file in files:
+        if file.endswith("._serve_as_.gz"):
+            ignore_list.append(file[:-len("._serve_as_.gz")])
+    return ignore_list
+
 target_elf = None
 if "nobuild" in COMMAND_LINE_TARGETS:
     target_elf = join("$BUILD_DIR", "${PROGNAME}.elf")
@@ -266,8 +274,12 @@ else:
         if filesystem not in ("littlefs", "spiffs"):
             sys.stderr.write("Filesystem %s is not supported!\n" % filesystem)
             env.Exit(1)
+        fs_temp_dir = join(env.get("PROJECT_BUILD_DIR"), env.get("PIOENV"), "_fs_data")
+        shutil.rmtree(fs_temp_dir, ignore_errors=True)
+        shutil.copytree(env.get("PROJECT_DATA_DIR"), fs_temp_dir,
+            ignore=_ignore_original_with_serve_as_gz)
         target_firm = env.DataToBin(
-            join("$BUILD_DIR", "${ESP8266_FS_IMAGE_NAME}"), "$PROJECT_DATA_DIR")
+            join("$BUILD_DIR", "${ESP8266_FS_IMAGE_NAME}"), fs_temp_dir)
         env.NoCache(target_firm)
         AlwaysBuild(target_firm)
     else:
@@ -430,8 +442,8 @@ else:
 
 env.AddPlatformTarget("upload", target_firm, upload_actions, "Upload")
 env.AddPlatformTarget("uploadfs", target_firm, upload_actions, "Upload Filesystem Image")
-env.AddPlatformTarget(
-    "uploadfsota", target_firm, upload_actions, "Upload Filesystem Image OTA")
+# env.AddPlatformTarget(
+#     "uploadfsota", target_firm, upload_actions, "Upload Filesystem Image OTA")
 
 #
 # Target: Erase Flash
