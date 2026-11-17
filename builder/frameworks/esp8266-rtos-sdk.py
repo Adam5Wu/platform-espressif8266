@@ -53,7 +53,10 @@ mcu = board.get("build.mcu", "esp8266")
 idf_variant = mcu.lower()
 
 FRAMEWORK_DIR = platform.get_package_dir("framework-esp8266-rtos-sdk")
-TOOLCHAIN_DIR = platform.get_package_dir("toolchain-xtensa")
+TOOLCHAIN_DIR = (
+    platform.get_package_dir("toolchain-xtensa-esp8266")
+    or platform.get_package_dir("toolchain-xtensa")
+)
 
 
 assert os.path.isdir(FRAMEWORK_DIR)
@@ -112,21 +115,25 @@ def get_project_lib_includes(env):
     return paths
 
 
-def is_cmake_reconfigure_required(cmake_api_reply_dir):
-    cmake_cache_file = os.path.join(BUILD_DIR, "CMakeCache.txt")
+def is_cmake_reconfigure_required(cmake_api_reply_dir, build_dir=BUILD_DIR):
+    cmake_cache_file = os.path.join(build_dir, "CMakeCache.txt")
     cmake_txt_files = [
         os.path.join(PROJECT_DIR, "CMakeLists.txt"),
         os.path.join(PROJECT_SRC_DIR, "CMakeLists.txt"),
     ]
-    cmake_preconf_dir = os.path.join(BUILD_DIR, "config")
+    cmake_preconf_dir = os.path.join(build_dir, "config")
     deafult_sdk_config = os.path.join(PROJECT_DIR, "sdkconfig.defaults")
 
-    for d in (cmake_api_reply_dir, cmake_preconf_dir):
+    check_dirs = [cmake_api_reply_dir]
+    is_main_build = os.path.abspath(build_dir) == os.path.abspath(BUILD_DIR)
+    if is_main_build:
+        check_dirs.append(cmake_preconf_dir)
+    for d in check_dirs:
         if not os.path.isdir(d) or not os.listdir(d):
             return True
     if not os.path.isfile(cmake_cache_file):
         return True
-    if not os.path.isfile(os.path.join(BUILD_DIR, "build.ninja")):
+    if not os.path.isfile(os.path.join(build_dir, "build.ninja")):
         return True
     if not os.path.isfile(SDKCONFIG_PATH) or os.path.getmtime(
         SDKCONFIG_PATH
@@ -136,9 +143,12 @@ def is_cmake_reconfigure_required(cmake_api_reply_dir):
         deafult_sdk_config
     ) > os.path.getmtime(cmake_cache_file):
         return True
+    check_files = list(cmake_txt_files) + [FRAMEWORK_DIR]
+    if is_main_build:
+        check_files.append(cmake_preconf_dir)
     if any(
         os.path.getmtime(f) > os.path.getmtime(cmake_cache_file)
-        for f in cmake_txt_files + [cmake_preconf_dir, FRAMEWORK_DIR]
+        for f in check_files
     ):
         return True
 
@@ -212,7 +222,7 @@ def get_cmake_code_model(src_dir, build_dir, extra_args=None):
     if not is_proper_idf_project():
         create_default_project_files()
 
-    if is_cmake_reconfigure_required(cmake_api_reply_dir):
+    if is_cmake_reconfigure_required(cmake_api_reply_dir, build_dir):
         run_cmake(src_dir, build_dir, extra_args)
 
     if not os.path.isdir(cmake_api_reply_dir) or not os.listdir(cmake_api_reply_dir):
@@ -237,6 +247,12 @@ def populate_idf_env_vars(idf_env):
         os.path.join(platform.get_package_dir("tool-cmake"), "bin"),
         os.path.dirname(env.subst("$PYTHONEXE")),
     ]
+    tc_lib = os.path.join(TOOLCHAIN_DIR, "lib")
+    if os.path.isdir(tc_lib):
+        additional_packages.insert(0, tc_lib)
+    dynconfig = os.path.join(tc_lib, "xtensa_esp8266.so")
+    if os.path.isfile(dynconfig):
+        idf_env["XTENSA_GNU_CONFIG"] = dynconfig
 
     if "windows" in get_systype():
         additional_packages.append(platform.get_package_dir("tool-mconf"))
@@ -320,14 +336,20 @@ def get_app_defines(app_config):
 
 
 def extract_link_args(target_config):
-    def _add_to_libpath(lib_path, link_args):
-        if lib_path not in link_args["LIBPATH"]:
+    def _add_to_libpath(lib_path, link_args, prepend=False):
+        if lib_path in link_args["LIBPATH"]:
+            if prepend:
+                link_args["LIBPATH"].remove(lib_path)
+                link_args["LIBPATH"].insert(0, lib_path)
+        elif prepend:
+            link_args["LIBPATH"].insert(0, lib_path)
+        else:
             link_args["LIBPATH"].append(lib_path)
 
-    def _add_archive(archive_path, link_args):
+    def _add_archive(archive_path, link_args, prepend=False):
         archive_name = os.path.basename(archive_path)
         if archive_name not in link_args["LIBS"]:
-            _add_to_libpath(os.path.dirname(archive_path), link_args)
+            _add_to_libpath(os.path.dirname(archive_path), link_args, prepend=prepend)
             link_args["LIBS"].append(archive_name)
 
     link_args = {"LINKFLAGS": [], "LIBS": [], "LIBPATH": [], "__LIB_DEPS": []}
@@ -344,8 +366,10 @@ def extract_link_args(target_config):
             if fragment.startswith("-l"):
                 link_args["LIBS"].extend(args)
             elif fragment.startswith("-L"):
-                lib_path = fragment.replace("-L", "").strip(" '\"")
-                _add_to_libpath(lib_path, link_args)
+                lib_path = fragment.replace("-L", "", 1).strip(" '\"")
+                _add_to_libpath(
+                    lib_path, link_args, prepend=("rom_stripped_lib" in lib_path)
+                )
             elif fragment.startswith("-") and not fragment.startswith("-l"):
                 # CMake mistakenly marks LINKFLAGS as libraries
                 link_args["LINKFLAGS"].extend(args)
@@ -356,8 +380,14 @@ def extract_link_args(target_config):
                     # In case of precompiled archives from framework package
                     _add_archive(archive_path, link_args)
                 else:
-                    # In case of archives within project
-                    if archive_path.startswith(".."):
+                    norm_archive = os.path.normpath(
+                        archive_path
+                        if os.path.isabs(archive_path)
+                        else os.path.join(BUILD_DIR, archive_path)
+                    )
+                    if "rom_stripped_lib" in norm_archive and os.path.isfile(norm_archive):
+                        _add_archive(norm_archive, link_args, prepend=True)
+                    elif archive_path.startswith(".."):
                         # Precompiled archives from project component
                         _add_archive(
                             os.path.normpath(os.path.join(BUILD_DIR, archive_path)),
@@ -1053,6 +1083,11 @@ generate_default_component()
 #
 
 if not board.get("build.ldscript", "") or True:
+    _ld_dynconfig = (
+        "-mdynconfig=xtensa_esp8266.so "
+        if os.path.isfile(os.path.join(TOOLCHAIN_DIR, "lib", "xtensa_esp8266.so"))
+        else ""
+    )
     linker_script = env.Command(
         os.path.join("$BUILD_DIR", "esp8266_out.ld"),
         board.get(
@@ -1065,7 +1100,9 @@ if not board.get("build.ldscript", "") or True:
                 "esp8266.ld"),
         ),
         env.VerboseAction(
-            '$CC -I"$BUILD_DIR/config" -C -P -x  c -E $SOURCE -DAPP_OFFSET=$RTOS_APP_OFFSET -DAPP_SIZE=$RTOS_APP_SIZE -o $TARGET',
+            '$CC '
+            + _ld_dynconfig
+            + '-I"$BUILD_DIR/config" -C -P -x  c -E $SOURCE -DAPP_OFFSET=$RTOS_APP_OFFSET -DAPP_SIZE=$RTOS_APP_SIZE -o $TARGET',
             "Generating LD script $TARGET",
         ),
     )

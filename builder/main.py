@@ -15,10 +15,11 @@
 # pylint: disable=redefined-outer-name
 
 import functools
+import os
 import re
 import sys
 import shutil
-from os.path import join
+from os.path import isdir, isfile, join
 
 
 from SCons.Script import (COMMAND_LINE_TARGETS, AlwaysBuild,
@@ -164,19 +165,42 @@ platform = env.PioPlatform()
 board = env.BoardConfig()
 filesystem = board.get("build.filesystem", "spiffs")
 
+_toolchain_dir = (
+    platform.get_package_dir("toolchain-xtensa-esp8266")
+    or platform.get_package_dir("toolchain-xtensa")
+    or ""
+)
+_has_esp_elf = bool(
+    _toolchain_dir
+    and (
+        isfile(join(_toolchain_dir, "bin", "xtensa-esp-elf-gcc.exe"))
+        or isfile(join(_toolchain_dir, "bin", "xtensa-esp-elf-gcc"))
+    )
+)
+_tool_prefix = "xtensa-esp-elf-" if _has_esp_elf else "xtensa-lx106-elf-"
+
+_dynconfig = join(_toolchain_dir, "lib", "xtensa_esp8266.so") if _toolchain_dir else ""
+if _dynconfig and isfile(_dynconfig):
+    env["ENV"]["XTENSA_GNU_CONFIG"] = _dynconfig
+    os.environ["XTENSA_GNU_CONFIG"] = _dynconfig
+    if isdir(join(_toolchain_dir, "lib")):
+        env.PrependENVPath("PATH", join(_toolchain_dir, "lib"))
+if _toolchain_dir and isdir(join(_toolchain_dir, "bin")):
+    env.PrependENVPath("PATH", join(_toolchain_dir, "bin"))
+
 env.Replace(
     __get_flash_size=_get_flash_size,
     __get_board_f_flash=_get_board_f_flash,
     __get_board_flash_mode=_get_board_flash_mode,
 
-    AR="xtensa-lx106-elf-ar",
-    AS="xtensa-lx106-elf-as",
-    CC="xtensa-lx106-elf-gcc",
-    CXX="xtensa-lx106-elf-g++",
-    GDB="xtensa-lx106-elf-gdb",
-    OBJCOPY="xtensa-lx106-elf-objcopy",
-    RANLIB="xtensa-lx106-elf-ranlib",
-    SIZETOOL="xtensa-lx106-elf-size",
+    AR=_tool_prefix + "ar",
+    AS=_tool_prefix + "as",
+    CC=_tool_prefix + "gcc",
+    CXX=_tool_prefix + "g++",
+    GDB=_tool_prefix + "gdb",
+    OBJCOPY=_tool_prefix + "objcopy",
+    RANLIB=_tool_prefix + "ranlib",
+    SIZETOOL=_tool_prefix + "size",
 
     ARFLAGS=["rc"],
 

@@ -102,13 +102,15 @@ def transform_to_asm(target, source, env):
     return files, source
 
 
+_objcopy_tool = env.subst("$CC").replace("-gcc", "-objcopy") or "xtensa-lx106-elf-objcopy"
+
 env.Append(
     BUILDERS=dict(
         TxtToBin=Builder(
             action=env.VerboseAction(
                 " ".join(
                     [
-                        "xtensa-lx106-elf-objcopy",
+                        _objcopy_tool,
                         "--input-target",
                         "binary",
                         "--output-target",

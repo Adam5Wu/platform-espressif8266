@@ -42,8 +42,15 @@
     "toolchain-xtensa": {
       "type": "toolchain",
       "owner": "platformio",
+      "optional": true,
       "version": "~2.100300.220621",
       "optionalVersions": ["~1.40802.0"]
+    },
+    "toolchain-xtensa-esp8266": {
+      "type": "toolchain",
+      "owner": "Adam5Wu",
+      "optional": true,
+      "version": "https://github.com/Adam5Wu/toolchain-xtensa-esp8266/releases/download/v16.2.0/toolchain-xtensa-esp8266-windows_amd64-16.2.0.zip"
     },
     "framework-arduinoespressif8266": {
       "type": "framework",
