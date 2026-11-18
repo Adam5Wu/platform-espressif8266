@@ -25,6 +25,7 @@ Code adapted from Wallace William https://github.com/WallaceWilliam
 
 import copy
 import json
+import re
 import subprocess
 import sys
 import os
@@ -53,10 +54,7 @@ mcu = board.get("build.mcu", "esp8266")
 idf_variant = mcu.lower()
 
 FRAMEWORK_DIR = platform.get_package_dir("framework-esp8266-rtos-sdk")
-TOOLCHAIN_DIR = (
-    platform.get_package_dir("toolchain-xtensa-esp8266")
-    or platform.get_package_dir("toolchain-xtensa")
-)
+TOOLCHAIN_DIR = platform.get_package_dir("toolchain-xtensa-esp8266")
 
 
 assert os.path.isdir(FRAMEWORK_DIR)
@@ -133,7 +131,8 @@ def is_cmake_reconfigure_required(cmake_api_reply_dir, build_dir=BUILD_DIR):
             return True
     if not os.path.isfile(cmake_cache_file):
         return True
-    if not os.path.isfile(os.path.join(build_dir, "build.ninja")):
+    ninja_file = os.path.join(build_dir, "build.ninja")
+    if not os.path.isfile(ninja_file):
         return True
     if not os.path.isfile(SDKCONFIG_PATH) or os.path.getmtime(
         SDKCONFIG_PATH
@@ -151,6 +150,17 @@ def is_cmake_reconfigure_required(cmake_api_reply_dir, build_dir=BUILD_DIR):
         for f in check_files
     ):
         return True
+
+    ninja_mtime = os.path.getmtime(ninja_file)
+    with open(ninja_file, "r", encoding="utf-8", errors="ignore") as fp:
+        for line in fp:
+            if line.startswith("build build.ninja: RERUN_CMAKE | "):
+                for tok in re.findall(r"(?:\$.|[^\s])+", line.split("|", 1)[1].strip()):
+                    dep = re.sub(r"\$(.)", r"\1", tok)
+                    dep_path = dep if os.path.isabs(dep) else os.path.join(build_dir, dep)
+                    if not os.path.exists(dep_path) or os.path.getmtime(dep_path) > ninja_mtime:
+                        return True
+                break
 
     return False
 
@@ -250,9 +260,7 @@ def populate_idf_env_vars(idf_env):
     tc_lib = os.path.join(TOOLCHAIN_DIR, "lib")
     if os.path.isdir(tc_lib):
         additional_packages.insert(0, tc_lib)
-    dynconfig = os.path.join(tc_lib, "xtensa_esp8266.so")
-    if os.path.isfile(dynconfig):
-        idf_env["XTENSA_GNU_CONFIG"] = dynconfig
+    idf_env.pop("XTENSA_GNU_CONFIG", None)
 
     if "windows" in get_systype():
         additional_packages.append(platform.get_package_dir("tool-mconf"))
@@ -335,22 +343,25 @@ def get_app_defines(app_config):
     return extract_defines(app_config["compileGroups"][0])
 
 
-def extract_link_args(target_config):
-    def _add_to_libpath(lib_path, link_args, prepend=False):
-        if lib_path in link_args["LIBPATH"]:
-            if prepend:
-                link_args["LIBPATH"].remove(lib_path)
-                link_args["LIBPATH"].insert(0, lib_path)
-        elif prepend:
-            link_args["LIBPATH"].insert(0, lib_path)
-        else:
+def extract_link_args(target_config, components_map=None, build_dir=BUILD_DIR):
+    def _add_to_libpath(lib_path, link_args):
+        if lib_path not in link_args["LIBPATH"]:
             link_args["LIBPATH"].append(lib_path)
 
-    def _add_archive(archive_path, link_args, prepend=False):
+    def _add_archive(archive_path, link_args):
         archive_name = os.path.basename(archive_path)
         if archive_name not in link_args["LIBS"]:
-            _add_to_libpath(os.path.dirname(archive_path), link_args, prepend=prepend)
+            _add_to_libpath(os.path.dirname(archive_path), link_args)
             link_args["LIBS"].append(archive_name)
+
+    component_archives = {
+        os.path.normpath(
+            os.path.join(
+                build_dir, c["config"]["paths"]["build"], c["config"]["nameOnDisk"]
+            )
+        )
+        for c in (components_map or {}).values()
+    }
 
     link_args = {"LINKFLAGS": [], "LIBS": [], "LIBPATH": [], "__LIB_DEPS": []}
 
@@ -366,36 +377,23 @@ def extract_link_args(target_config):
             if fragment.startswith("-l"):
                 link_args["LIBS"].extend(args)
             elif fragment.startswith("-L"):
-                lib_path = fragment.replace("-L", "", 1).strip(" '\"")
-                _add_to_libpath(
-                    lib_path, link_args, prepend=("rom_stripped_lib" in lib_path)
-                )
+                _add_to_libpath(fragment.replace("-L", "", 1).strip(" '\""), link_args)
             elif fragment.startswith("-") and not fragment.startswith("-l"):
                 # CMake mistakenly marks LINKFLAGS as libraries
                 link_args["LINKFLAGS"].extend(args)
             elif fragment.endswith(".a"):
                 archive_path = fragment
-                # process static archives
-                if archive_path.startswith(FRAMEWORK_DIR):
-                    # In case of precompiled archives from framework package
-                    _add_archive(archive_path, link_args)
+                norm_archive = os.path.normpath(
+                    archive_path
+                    if os.path.isabs(archive_path)
+                    else os.path.join(build_dir, archive_path)
+                )
+                if norm_archive in component_archives:
+                    link_args["__LIB_DEPS"].append(os.path.basename(archive_path))
+                elif os.path.isfile(norm_archive):
+                    _add_archive(norm_archive, link_args)
                 else:
-                    norm_archive = os.path.normpath(
-                        archive_path
-                        if os.path.isabs(archive_path)
-                        else os.path.join(BUILD_DIR, archive_path)
-                    )
-                    if "rom_stripped_lib" in norm_archive and os.path.isfile(norm_archive):
-                        _add_archive(norm_archive, link_args, prepend=True)
-                    elif archive_path.startswith(".."):
-                        # Precompiled archives from project component
-                        _add_archive(
-                            os.path.normpath(os.path.join(BUILD_DIR, archive_path)),
-                            link_args,
-                        )
-                    else:
-                        # Internally built libraries used for dependency resolution
-                        link_args["__LIB_DEPS"].append(os.path.basename(archive_path))
+                    link_args["__LIB_DEPS"].append(os.path.basename(archive_path))
 
     return link_args
 
@@ -597,7 +595,7 @@ def generate_project_ld_script(sdk_config, ignore_targets=None):
         '--objdump "{objdump}"'
     ).format(**args)
 
-    os.environ["IDF_PATH"] = FRAMEWORK_DIR
+    env["ENV"]["IDF_PATH"] = FRAMEWORK_DIR
     return env.Command(
         os.path.join("$BUILD_DIR", "esp8266.project.ld"),
         os.path.join(
@@ -632,7 +630,10 @@ def prepare_build_envs(config, default_env, debug_allowed=True):
         for cc in compile_commands:
             build_flags = cc.get("fragment")
             if not build_flags.startswith("-D"):
-                build_env.AppendUnique(**build_env.ParseFlags(build_flags))
+                parsed_flags = build_env.ParseFlags(build_flags)
+                build_env.AppendUnique(**parsed_flags)
+                if cg.get("language") == "ASM":
+                    build_env.AppendUnique(ASFLAGS=parsed_flags.get("CCFLAGS", []))
         build_env.AppendUnique(CPPDEFINES=defines, CPPPATH=includes)
         if sys_includes:
             build_env.Append(CCFLAGS=[("-isystem", inc) for inc in sys_includes])
@@ -810,7 +811,9 @@ def build_bootloader(sdk_config):
         "bootloader",
         debug_allowed=sdk_config.get("BOOTLOADER_COMPILER_OPTIMIZATION_DEBUG", False),
     )
-    link_args = extract_link_args(elf_config)
+    link_args = extract_link_args(
+        elf_config, components_map, os.path.join(BUILD_DIR, "bootloader")
+    )
     extra_flags = filter_args(link_args["LINKFLAGS"], ["-T", "-u"])
     link_args["LINKFLAGS"] = sorted(
         list(set(link_args["LINKFLAGS"]) - set(extra_flags))
@@ -1083,11 +1086,6 @@ generate_default_component()
 #
 
 if not board.get("build.ldscript", "") or True:
-    _ld_dynconfig = (
-        "-mdynconfig=xtensa_esp8266.so "
-        if os.path.isfile(os.path.join(TOOLCHAIN_DIR, "lib", "xtensa_esp8266.so"))
-        else ""
-    )
     linker_script = env.Command(
         os.path.join("$BUILD_DIR", "esp8266_out.ld"),
         board.get(
@@ -1100,9 +1098,8 @@ if not board.get("build.ldscript", "") or True:
                 "esp8266.ld"),
         ),
         env.VerboseAction(
-            '$CC '
-            + _ld_dynconfig
-            + '-I"$BUILD_DIR/config" -C -P -x  c -E $SOURCE -DAPP_OFFSET=$RTOS_APP_OFFSET -DAPP_SIZE=$RTOS_APP_SIZE -o $TARGET',
+            '$CC -mdynconfig=xtensa_esp8266.so '
+            '-I"$BUILD_DIR/config" -C -P -x  c -E $SOURCE -DAPP_OFFSET=$RTOS_APP_OFFSET -DAPP_SIZE=$RTOS_APP_SIZE -o $TARGET',
             "Generating LD script $TARGET",
         ),
     )
@@ -1222,7 +1219,7 @@ project_config = target_configs.get(project_target_name, {})
 default_config = target_configs.get(default_config_name, {})
 project_defines = get_app_defines(project_config)
 project_flags = get_app_flags(project_config, default_config)
-link_args = extract_link_args(elf_config)
+link_args = extract_link_args(elf_config, framework_components_map, BUILD_DIR)
 app_includes = get_app_includes(elf_config)
 
 set_elftobin(sdk_config)

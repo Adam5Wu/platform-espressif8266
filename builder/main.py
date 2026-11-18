@@ -15,11 +15,10 @@
 # pylint: disable=redefined-outer-name
 
 import functools
-import os
 import re
 import sys
 import shutil
-from os.path import isdir, isfile, join
+from os.path import isdir, join
 
 
 from SCons.Script import (COMMAND_LINE_TARGETS, AlwaysBuild,
@@ -165,26 +164,18 @@ platform = env.PioPlatform()
 board = env.BoardConfig()
 filesystem = board.get("build.filesystem", "spiffs")
 
-_toolchain_dir = (
-    platform.get_package_dir("toolchain-xtensa-esp8266")
-    or platform.get_package_dir("toolchain-xtensa")
-    or ""
-)
-_has_esp_elf = bool(
-    _toolchain_dir
-    and (
-        isfile(join(_toolchain_dir, "bin", "xtensa-esp-elf-gcc.exe"))
-        or isfile(join(_toolchain_dir, "bin", "xtensa-esp-elf-gcc"))
-    )
-)
-_tool_prefix = "xtensa-esp-elf-" if _has_esp_elf else "xtensa-lx106-elf-"
-
-_dynconfig = join(_toolchain_dir, "lib", "xtensa_esp8266.so") if _toolchain_dir else ""
-if _dynconfig and isfile(_dynconfig):
-    env["ENV"]["XTENSA_GNU_CONFIG"] = _dynconfig
-    os.environ["XTENSA_GNU_CONFIG"] = _dynconfig
-    if isdir(join(_toolchain_dir, "lib")):
+_is_rtos_sdk = "esp8266-rtos-sdk" in env.Flatten(env.get("PIOFRAMEWORK", []))
+if _is_rtos_sdk:
+    _toolchain_dir = platform.get_package_dir("toolchain-xtensa-esp8266") or ""
+    _tool_prefix = "xtensa-esp-elf-"
+    # Single dynconfig mechanism: -mdynconfig=xtensa_esp8266.so + <toolchain>/lib on PATH
+    # with XTENSA_GNU_CONFIG unset (cc1 rejects conflicting env var + relative flag).
+    env["ENV"].pop("XTENSA_GNU_CONFIG", None)
+    if _toolchain_dir and isdir(join(_toolchain_dir, "lib")):
         env.PrependENVPath("PATH", join(_toolchain_dir, "lib"))
+else:
+    _toolchain_dir = platform.get_package_dir("toolchain-xtensa") or ""
+    _tool_prefix = "xtensa-lx106-elf-"
 if _toolchain_dir and isdir(join(_toolchain_dir, "bin")):
     env.PrependENVPath("PATH", join(_toolchain_dir, "bin"))
 

@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from platformio.public import PlatformBase
-import re
 import sys
 
 class Espressif8266Platform(PlatformBase):
@@ -24,25 +23,8 @@ class Espressif8266Platform(PlatformBase):
             self.packages['tool-mkspiffs']['optional'] = False
             self.packages['tool-mklittlefs']['optional'] = False
         if "esp8266-rtos-sdk" in framework:
-            raw_pkgs = variables.get("platform_packages", [])
-            if isinstance(raw_pkgs, str):
-                raw_pkgs = raw_pkgs.splitlines()
-            pkg_names = {
-                re.split(r"[\s@<>=~]+", p.strip())[0]
-                for p in raw_pkgs
-                if p and p.strip()
-            }
-            use_legacy_tc = (
-                "toolchain-xtensa" in pkg_names
-                and "toolchain-xtensa-esp8266" not in pkg_names
-            )
-            if use_legacy_tc:
-                self.packages['toolchain-xtensa']['optional'] = False
-                self.packages['toolchain-xtensa']['version'] = '~8.4.0'
-                self.packages['toolchain-xtensa-esp8266']['optional'] = True
-            else:
-                self.packages['toolchain-xtensa']['optional'] = True
-                self.packages['toolchain-xtensa-esp8266']['optional'] = False
+            self.packages['toolchain-xtensa']['optional'] = True
+            self.packages['toolchain-xtensa-esp8266']['optional'] = False
             for p in self.packages:
                 if p in ('tool-cmake', 'tool-ninja'):
                     self.packages[p]['optional'] = False
