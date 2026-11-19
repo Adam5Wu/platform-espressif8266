@@ -23,7 +23,6 @@ https://docs.espressif.com/projects/esp8266-rtos-sdk/en/latest/
 Code adapted from Wallace William https://github.com/WallaceWilliam
 """
 
-import copy
 import json
 import re
 import subprocess
@@ -1386,16 +1385,6 @@ if "__test" not in COMMAND_LINE_TARGETS or env.GetProjectOption(
             project_env.subst("$PROJECT_DIR"),
         )
     )
-
-
-#
-# To embed firmware checksum a special argument for esptool.py is required
-#
-
-action = copy.deepcopy(env["BUILDERS"]["ElfToBin"].action)
-#action.cmd_list = env["BUILDERS"]["ElfToBin"].action.cmd_list.replace(
-#    "-o", "--elf-sha256-offset 0xb0 -o")
-env["BUILDERS"]["ElfToBin"].action = action
 
 
 #
