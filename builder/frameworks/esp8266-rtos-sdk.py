@@ -133,24 +133,24 @@ def is_cmake_reconfigure_required(cmake_api_reply_dir, build_dir=BUILD_DIR):
     ninja_file = os.path.join(build_dir, "build.ninja")
     if not os.path.isfile(ninja_file):
         return True
+    ninja_mtime = os.path.getmtime(ninja_file)
     if not os.path.isfile(SDKCONFIG_PATH) or os.path.getmtime(
         SDKCONFIG_PATH
-    ) > os.path.getmtime(cmake_cache_file):
+    ) > ninja_mtime:
         return True
     if os.path.isfile(deafult_sdk_config) and os.path.getmtime(
         deafult_sdk_config
-    ) > os.path.getmtime(cmake_cache_file):
+    ) > ninja_mtime:
         return True
-    check_files = list(cmake_txt_files) + [FRAMEWORK_DIR]
+    check_files = list(cmake_txt_files) + [FRAMEWORK_DIR, cmake_cache_file]
     if is_main_build:
         check_files.append(cmake_preconf_dir)
     if any(
-        os.path.getmtime(f) > os.path.getmtime(cmake_cache_file)
+        os.path.getmtime(f) > ninja_mtime
         for f in check_files
     ):
         return True
 
-    ninja_mtime = os.path.getmtime(ninja_file)
     with open(ninja_file, "r", encoding="utf-8", errors="ignore") as fp:
         for line in fp:
             if line.startswith("build build.ninja: RERUN_CMAKE | "):
@@ -735,6 +735,9 @@ def run_cmake(src_dir, build_dir, extra_args=None):
         cmd.extend(extra_args)
 
     run_tool(cmd)
+    ninja_file = os.path.join(build_dir, "build.ninja")
+    if os.path.isfile(ninja_file):
+        os.utime(ninja_file, None)
 
 
 def find_lib_deps(components_map, elf_config, link_args, ignore_components=None):
